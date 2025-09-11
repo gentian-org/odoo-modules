@@ -1,0 +1,9 @@
+[submodule "stoodio"]
+	path = stoodio
+	url = https://github.com/gentian-org/stoodio.git
+[submodule "hide-enterprise-modules"]
+	path = hide-enterprise-modules
+	url = https://github.com/gentian-org/hide-enterprise-modules.git
+[submodule "bpmn"]
+	path = bpmn
+	url = https://github.com/gentian-org/bpmn.git
