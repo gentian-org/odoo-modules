@@ -7,3 +7,6 @@
 [submodule "bpmn"]
 	path = bpmn
 	url = https://github.com/gentian-org/bpmn.git
+[submodule "camoonda"]
+	path = camoonda
+	url = https://github.com/gentian-org/camoonda.git
