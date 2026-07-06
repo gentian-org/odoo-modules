@@ -1,7 +1,7 @@
 # Copyright 2026 Gentian Authors. Licensed under LGPL-3.0.
 
 import logging
-from odoo import api, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -10,6 +10,11 @@ class ResUsers(models.Model):
     """Overrides user sign-in to dynamically map Keycloak group claims."""
 
     _inherit = "res.users"
+
+    gentian_dynamic_roles = fields.Char(
+        string="Gentian Dynamic Roles",
+        help="Comma-separated XML IDs of dynamically mapped Odoo roles.",
+    )
 
     @api.model
     def _auth_oauth_signin(self, provider, validation, params):
@@ -63,6 +68,55 @@ class ResUsers(models.Model):
             ("gentian_group_name", "!=", False),
             ("gentian_group_name", "not in", list(keycloak_group_names)),
         ])
+
+        # Dynamic in-app roles mapping (tier 3 RBAC)
+        raw_roles = validation.get("gentianOdooGroupRoles") or []
+        if not isinstance(raw_roles, list):
+            raw_roles = [raw_roles]
+
+        mapped_role_xml_ids = []
+        for role_entry in raw_roles:
+            if not isinstance(role_entry, str):
+                continue
+            role_entry = role_entry.strip()
+            if not role_entry:
+                continue
+            if role_entry.startswith("[") and role_entry.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(role_entry)
+                    if isinstance(parsed, list):
+                        mapped_role_xml_ids.extend([str(r).strip() for r in parsed if r])
+                    else:
+                        mapped_role_xml_ids.append(str(parsed).strip())
+                except Exception:
+                    mapped_role_xml_ids.append(role_entry)
+            else:
+                mapped_role_xml_ids.extend([r.strip() for r in role_entry.split(",") if r.strip()])
+
+        # Previous dynamic roles
+        prev_roles_str = self.gentian_dynamic_roles or ""
+        prev_roles = [r.strip() for r in prev_roles_str.split(",") if r.strip()]
+
+        # Groups to add: new roles that are not already in user's groups
+        for xml_id in mapped_role_xml_ids:
+            role_group = self.env.ref(xml_id, raise_if_not_found=False)
+            if role_group and role_group._name == "res.groups":
+                groups_to_add.append(role_group)
+                _logger.info("Mapped dynamic Odoo role group: %s", xml_id)
+            else:
+                _logger.warning("Mapped dynamic Odoo role XML ID not found or invalid: %s", xml_id)
+
+        # Groups to remove: previous roles that are not in new roles
+        for xml_id in prev_roles:
+            if xml_id not in mapped_role_xml_ids:
+                role_group = self.env.ref(xml_id, raise_if_not_found=False)
+                if role_group and role_group._name == "res.groups":
+                    groups_to_remove |= role_group
+                    _logger.info("Removing stale dynamic mapped Odoo role group: %s", xml_id)
+
+        # Update saved dynamic roles on user
+        self.gentian_dynamic_roles = ",".join(mapped_role_xml_ids)
 
         # Admin privilege mapping
         admin_group = self.env.ref("base.group_system", raise_if_not_found=False)
