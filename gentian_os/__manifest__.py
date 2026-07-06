@@ -2,7 +2,7 @@
 
 {
     "name": "gentian_os",
-    "version": "18.0.1.0.0",
+    "version": "19.0.1.0.0",
     "category": "Hidden",
     "summary": "Gentian OS integration driver for Odoo",
     "description": """
