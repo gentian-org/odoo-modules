@@ -33,6 +33,7 @@ class GentianHome(Home):
 
     @http.route(['/web', '/odoo', '/odoo/<path:subpath>', '/scoped_app/<path:subpath>'], type='http', auth="none")
     def web_client(self, s_action=None, **kw):
+        request.httprequest.environ['wsgi.url_scheme'] = 'https'
         response = super().web_client(s_action=s_action, **kw)
         if isinstance(response, http.Response):
             response.headers.pop('X-Frame-Options', None)
@@ -41,6 +42,7 @@ class GentianHome(Home):
 
     @http.route('/web/login', type='http', auth='none', readonly=False)
     def web_login(self, redirect=None, **kw):
+        request.httprequest.environ['wsgi.url_scheme'] = 'https'
         response = super().web_login(redirect=redirect, **kw)
         if isinstance(response, http.Response):
             response.headers.pop('X-Frame-Options', None)
