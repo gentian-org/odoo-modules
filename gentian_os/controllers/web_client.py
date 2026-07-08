@@ -28,24 +28,27 @@ class GentianWebClient(http.Controller):
         return {"embed": embed}
 
 
+def _rewrite_response(response):
+    if isinstance(response, http.Response):
+        response.headers.pop('X-Frame-Options', None)
+        response.headers['Content-Security-Policy'] = _get_frame_ancestors()
+        if 'Location' in response.headers:
+            loc = response.headers['Location']
+            if loc.startswith('http://'):
+                response.headers['Location'] = loc.replace('http://', 'https://', 1)
+    return response
+
+
 class GentianHome(Home):
     """Override standard Home routes to allow iframe framing in Gentian portal."""
 
     @http.route(['/web', '/odoo', '/odoo/<path:subpath>', '/scoped_app/<path:subpath>'], type='http', auth="none")
     def web_client(self, s_action=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
-        response = super().web_client(s_action=s_action, **kw)
-        if isinstance(response, http.Response):
-            response.headers.pop('X-Frame-Options', None)
-            response.headers['Content-Security-Policy'] = _get_frame_ancestors()
-        return response
+        return _rewrite_response(super().web_client(s_action=s_action, **kw))
 
     @http.route('/web/login', type='http', auth='none', readonly=False)
     def web_login(self, redirect=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
-        response = super().web_login(redirect=redirect, **kw)
-        if isinstance(response, http.Response):
-            response.headers.pop('X-Frame-Options', None)
-            response.headers['Content-Security-Policy'] = _get_frame_ancestors()
-        return response
+        return _rewrite_response(super().web_login(redirect=redirect, **kw))
 
