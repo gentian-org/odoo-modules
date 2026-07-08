@@ -28,14 +28,21 @@ class GentianWebClient(http.Controller):
         return {"embed": embed}
 
 
+import logging
+_logger = logging.getLogger(__name__)
+
+
 def _rewrite_response(response):
+    _logger.info("REWRITE_RESPONSE CALLED: %s, headers: %s", type(response), getattr(response, 'headers', None))
     if isinstance(response, http.Response):
         response.headers.pop('X-Frame-Options', None)
         response.headers['Content-Security-Policy'] = _get_frame_ancestors()
         if 'Location' in response.headers:
+            _logger.info("REWRITE_RESPONSE location: %s", response.headers['Location'])
             loc = response.headers['Location']
             if loc.startswith('http://'):
                 response.headers['Location'] = loc.replace('http://', 'https://', 1)
+                _logger.info("REWRITE_RESPONSE updated location: %s", response.headers['Location'])
     return response
 
 
