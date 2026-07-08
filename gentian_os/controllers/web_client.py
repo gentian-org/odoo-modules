@@ -3,6 +3,10 @@
 from odoo import http
 from odoo.http import request
 from odoo.addons.web.controllers.home import Home
+try:
+    from odoo.addons.auth_oauth.controllers.main import OAuthLogin
+except ImportError:
+    OAuthLogin = object
 
 
 def _get_frame_ancestors():
@@ -62,4 +66,21 @@ class GentianHome(Home):
     def web_login(self, redirect=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
         return _rewrite_response(super().web_login(redirect=redirect, **kw))
+
+
+class GentianOAuthLogin(OAuthLogin):
+    """Override OAuthLogin controller to force HTTPS redirect URI for providers."""
+
+    def list_providers(self):
+        providers = super().list_providers() if OAuthLogin is not object else []
+        for provider in providers:
+            if provider.get('auth_link'):
+                auth_link = provider['auth_link']
+                # Correct redirect_uri to HTTPS
+                if 'redirect_uri=http%3A' in auth_link:
+                    provider['auth_link'] = auth_link.replace('redirect_uri=http%3A', 'redirect_uri=https%3A', 1)
+                # Correct state redirect parameter to HTTPS if needed
+                if 'http%253A%252F%252F' in auth_link:
+                    provider['auth_link'] = provider['auth_link'].replace('http%253A%252F%252F', 'https%253A%252F%252F')
+        return providers
 
