@@ -148,3 +148,31 @@ class ResUsers(models.Model):
         if updates:
             self.write({"groups_id": updates})
             _logger.info("Updated group memberships for user %s: %s", self.login, updates)
+
+    @api.model
+    def _register_hook(self):
+        super()._register_hook()
+        import os
+        client_id = os.environ.get("OIDC_CLIENT_ID")
+        issuer = os.environ.get("OIDC_ISSUER")
+        if not (client_id and issuer):
+            return
+        issuer = issuer.rstrip('/')
+        self = self.sudo()
+        Provider = self.env["auth.oauth.provider"]
+        provider = Provider.search([("name", "=", "Keycloak")], limit=1)
+        vals = {
+            "name": "Keycloak",
+            "client_id": client_id,
+            "enabled": True,
+            "auth_endpoint": f"{issuer}/protocol/openid-connect/auth",
+            "validation_endpoint": f"{issuer}/protocol/openid-connect/userinfo",
+            "scope": "openid profile email groups",
+            "css_class": "o_auth_oauth_provider_icon",
+            "body": "Keycloak",
+        }
+        if provider:
+            provider.write(vals)
+        else:
+            Provider.create(vals)
+            _logger.info("Automatically registered Keycloak OAuth provider.")
