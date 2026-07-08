@@ -40,9 +40,13 @@ def _rewrite_response(response):
         if 'Location' in response.headers:
             _logger.info("REWRITE_RESPONSE location: %s", response.headers['Location'])
             loc = response.headers['Location']
-            if loc.startswith('http://'):
+            if loc.startswith('/'):
+                host = request.httprequest.host
+                response.headers['Location'] = f"https://{host}{loc}"
+                _logger.info("REWRITE_RESPONSE converted relative location: %s", response.headers['Location'])
+            elif loc.startswith('http://'):
                 response.headers['Location'] = loc.replace('http://', 'https://', 1)
-                _logger.info("REWRITE_RESPONSE updated location: %s", response.headers['Location'])
+                _logger.info("REWRITE_RESPONSE updated absolute location: %s", response.headers['Location'])
     return response
 
 
