@@ -206,8 +206,9 @@ class ResUsers(models.Model):
 
         # Update default company logo to Gentian logo
         import base64
-        from odoo.modules.module import get_module_resource
-        logo_path = get_module_resource("gentian_os", "static", "src", "img", "logo.png")
+        from odoo.modules.module import get_module_path
+        module_path = get_module_path("gentian_os")
+        logo_path = os.path.join(module_path, "static", "src", "img", "logo.png") if module_path else None
         if logo_path and os.path.exists(logo_path):
             try:
                 with open(logo_path, "rb") as f:
