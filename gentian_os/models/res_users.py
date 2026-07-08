@@ -172,7 +172,17 @@ class ResUsers(models.Model):
             "body": "Keycloak",
         }
         if provider:
-            provider.write(vals)
+            needs_update = any(provider[k] != v for k, v in vals.items())
+            if needs_update:
+                try:
+                    with self.env.cr.savepoint():
+                        provider.write(vals)
+                except Exception as e:
+                    _logger.warning("Failed to update Keycloak provider due to concurrent transaction: %s", e)
         else:
-            Provider.create(vals)
-            _logger.info("Automatically registered Keycloak OAuth provider.")
+            try:
+                with self.env.cr.savepoint():
+                    Provider.create(vals)
+                    _logger.info("Automatically registered Keycloak OAuth provider.")
+            except Exception as e:
+                _logger.warning("Failed to create Keycloak provider due to concurrent transaction: %s", e)
