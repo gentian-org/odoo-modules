@@ -161,12 +161,16 @@ class ResUsers(models.Model):
         self = self.sudo()
         Provider = self.env["auth.oauth.provider"]
         provider = Provider.search([("name", "=", "Keycloak")], limit=1)
+        validation_endpoint = f"{issuer}/protocol/openid-connect/userinfo"
+        if "id.desk.gentian.org" in issuer:
+            realm = issuer.split('/')[-1]
+            validation_endpoint = f"http://gentian-idp-keycloak-keycloakx-http.platform-kernel.svc.cluster.local:8080/auth/realms/{realm}/protocol/openid-connect/userinfo"
         vals = {
             "name": "Keycloak",
             "client_id": client_id,
             "enabled": True,
             "auth_endpoint": f"{issuer}/protocol/openid-connect/auth",
-            "validation_endpoint": f"{issuer}/protocol/openid-connect/userinfo",
+            "validation_endpoint": validation_endpoint,
             "scope": "openid profile email groups",
             "css_class": "o_auth_oauth_provider_icon",
             "body": "Keycloak",
