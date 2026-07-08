@@ -66,11 +66,9 @@ class ResUsers(models.Model):
         for name in keycloak_group_names:
             group = ResGroups.search([("gentian_group_name", "=", name)], limit=1)
             if not group:
-                category = self.env.ref("base.module_category_hidden", raise_if_not_found=False)
                 group = ResGroups.create({
                     "name": f"Gentian / {name}",
                     "gentian_group_name": name,
-                    "category_id": category.id if category else False,
                 })
                 _logger.info("Created linked Odoo group for Keycloak group: %s", name)
             groups_to_add.append(group)
