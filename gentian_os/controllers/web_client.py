@@ -89,7 +89,7 @@ class GentianHome(Home):
             if keycloak_provider and keycloak_provider.get("auth_link"):
                 auth_link = keycloak_provider["auth_link"]
                 _logger.info("Auto-redirecting portal-embedded Odoo login to Keycloak: %s", auth_link)
-                return _rewrite_response(request.redirect(auth_link))
+                return _rewrite_response(request.redirect(auth_link, local=False))
 
         return _rewrite_response(super().web_login(redirect=redirect, **kw))
 
