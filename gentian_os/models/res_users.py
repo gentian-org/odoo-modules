@@ -181,12 +181,15 @@ class ResUsers(models.Model):
                 try:
                     with self.env.cr.savepoint():
                         provider.write(vals)
+                    self.env.cr.commit()
+                    _logger.info("Successfully updated Keycloak OAuth provider validation endpoint to internal URL.")
                 except Exception as e:
                     _logger.warning("Failed to update Keycloak provider due to concurrent transaction: %s", e)
         else:
             try:
                 with self.env.cr.savepoint():
                     Provider.create(vals)
-                    _logger.info("Automatically registered Keycloak OAuth provider.")
+                self.env.cr.commit()
+                _logger.info("Automatically registered Keycloak OAuth provider.")
             except Exception as e:
                 _logger.warning("Failed to create Keycloak provider due to concurrent transaction: %s", e)
