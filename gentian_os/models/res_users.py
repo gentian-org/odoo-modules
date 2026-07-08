@@ -17,6 +17,18 @@ class ResUsers(models.Model):
     )
 
     @api.model
+    def _auth_oauth_rpc(self, endpoint, access_token):
+        import requests
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+        except Exception:
+            _logger.exception("OAuth RPC failed with Authorization header.")
+        return super(ResUsers, self)._auth_oauth_rpc(endpoint, access_token)
+
+    @api.model
     def _auth_oauth_signin(self, provider, validation, params):
         # Call standard OAuth sign-in to authenticate/provision the user
         login = super(ResUsers, self)._auth_oauth_signin(provider, validation, params)
