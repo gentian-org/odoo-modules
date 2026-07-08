@@ -60,11 +60,37 @@ class GentianHome(Home):
     @http.route(['/web', '/odoo', '/odoo/<path:subpath>', '/scoped_app/<path:subpath>'], type='http', auth="none")
     def web_client(self, s_action=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
+        
+        # Prevent session contamination when switching portal accounts
+        login_hint = request.params.get("login_hint")
+        if login_hint and request.session.uid:
+            user = request.env['res.users'].sudo().browse(request.session.uid)
+            if user:
+                current_login = user.login
+                current_email = user.email
+                # Check if the session user matches the portal login_hint
+                if login_hint != current_login and login_hint != current_email:
+                    _logger.warning("Active Odoo session (%s/%s) does not match portal login_hint (%s). Logging out.", current_login, current_email, login_hint)
+                    request.session.logout(keep_db=True)
+                    # Redirect to trigger re-auth
+                    return _rewrite_response(http.redirect_with_hash(f"/web/login?gentian_embed=1&redirect={request.httprequest.full_path}"))
+
         return _rewrite_response(super().web_client(s_action=s_action, **kw))
 
     @http.route('/web/login', type='http', auth='none', readonly=False)
     def web_login(self, redirect=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
+        
+        # Auto-redirect embedded login requests to Keycloak for Zero-Click SSO
+        if request.params.get("gentian_embed") == "1" and not request.session.uid and not kw.get("oauth_error"):
+            oauth_login = GentianOAuthLogin()
+            providers = oauth_login.list_providers()
+            keycloak_provider = next((p for p in providers if p.get("name") == "Keycloak"), None)
+            if keycloak_provider and keycloak_provider.get("auth_link"):
+                auth_link = keycloak_provider["auth_link"]
+                _logger.info("Auto-redirecting portal-embedded Odoo login to Keycloak: %s", auth_link)
+                return _rewrite_response(http.redirect_with_hash(auth_link))
+
         return _rewrite_response(super().web_login(redirect=redirect, **kw))
 
 
