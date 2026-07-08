@@ -203,3 +203,20 @@ class ResUsers(models.Model):
                 _logger.info("Automatically registered Keycloak OAuth provider.")
             except Exception as e:
                 _logger.warning("Failed to create Keycloak provider due to concurrent transaction: %s", e)
+
+        # Update default company logo to Gentian logo
+        import base64
+        from odoo.modules.module import get_module_resource
+        logo_path = get_module_resource("gentian_os", "static", "src", "img", "logo.png")
+        if logo_path and os.path.exists(logo_path):
+            try:
+                with open(logo_path, "rb") as f:
+                    logo_data = base64.b64encode(f.read())
+                company = self.env["res.company"].search([], limit=1)
+                if company and company.logo != logo_data:
+                    with self.env.cr.savepoint():
+                        company.write({"logo": logo_data})
+                    self.env.cr.commit()
+                    _logger.info("Successfully updated company logo to Gentian logo.")
+            except Exception as e:
+                _logger.warning("Failed to update company logo to Gentian logo: %s", e)
