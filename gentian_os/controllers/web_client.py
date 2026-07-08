@@ -2,6 +2,21 @@
 
 from odoo import http
 from odoo.http import request
+from odoo.addons.web.controllers.home import Home
+
+
+def _get_frame_ancestors():
+    host = request.httprequest.host
+    if not host:
+        return "frame-ancestors 'self'"
+    # Remove port if present
+    host = host.split(':')[0]
+    parts = host.split('.')
+    if len(parts) >= 3:
+        # For odoo.demo.desk.gentian.org, allow *.desk.gentian.org
+        base_domain = '.'.join(parts[-3:])
+        return f"frame-ancestors 'self' https://*.{base_domain}"
+    return "frame-ancestors 'self'"
 
 
 class GentianWebClient(http.Controller):
@@ -11,3 +26,24 @@ class GentianWebClient(http.Controller):
     def embed_mode(self):
         embed = request.httprequest.args.get("gentian_embed") == "1"
         return {"embed": embed}
+
+
+class GentianHome(Home):
+    """Override standard Home routes to allow iframe framing in Gentian portal."""
+
+    @http.route(['/web', '/odoo', '/odoo/<path:subpath>', '/scoped_app/<path:subpath>'], type='http', auth="none")
+    def web_client(self, s_action=None, **kw):
+        response = super().web_client(s_action=s_action, **kw)
+        if isinstance(response, http.Response):
+            response.headers.pop('X-Frame-Options', None)
+            response.headers['Content-Security-Policy'] = _get_frame_ancestors()
+        return response
+
+    @http.route('/web/login', type='http', auth='none', readonly=False)
+    def web_login(self, redirect=None, **kw):
+        response = super().web_login(redirect=redirect, **kw)
+        if isinstance(response, http.Response):
+            response.headers.pop('X-Frame-Options', None)
+            response.headers['Content-Security-Policy'] = _get_frame_ancestors()
+        return response
+
