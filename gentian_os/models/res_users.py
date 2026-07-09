@@ -128,6 +128,22 @@ class ResUsers(models.Model):
         # Update saved dynamic roles on user
         self.gentian_dynamic_roles = ",".join(mapped_role_xml_ids)
 
+        # Static App-to-Odoo group mappings
+        static_mappings = {
+            ":app:odoo-cb-crm": ["sales_team.group_sale_salesman"],
+        }
+        for suffix, xml_ids in static_mappings.items():
+            has_app = any(kg_name.endswith(suffix) for kg_name in keycloak_group_names)
+            for xml_id in xml_ids:
+                target_group = self.env.ref(xml_id, raise_if_not_found=False)
+                if target_group and target_group._name == "res.groups":
+                    if has_app:
+                        groups_to_add.append(target_group)
+                        _logger.info("Mapping static Odoo group %s for app suffix %s", xml_id, suffix)
+                    else:
+                        groups_to_remove |= target_group
+                        _logger.info("Removing static Odoo group %s because app suffix %s is missing", xml_id, suffix)
+
         # Admin privilege mapping
         admin_group = self.env.ref("base.group_system", raise_if_not_found=False)
         access_group = self.env.ref("base.group_erp_manager", raise_if_not_found=False)
