@@ -145,6 +145,16 @@ class ResUsers(models.Model):
                 groups_to_remove |= admin_group
                 groups_to_remove |= access_group
 
+        # Promote portal user to internal user so they can access backend app modules (/web)
+        portal_group = self.env.ref("base.group_portal", raise_if_not_found=False)
+        internal_group = self.env.ref("base.group_user", raise_if_not_found=False)
+        if portal_group and internal_group:
+            if portal_group in self.groups_id or internal_group not in self.groups_id:
+                if portal_group in self.groups_id:
+                    groups_to_remove |= portal_group
+                if internal_group not in groups_to_add and internal_group not in self.groups_id:
+                    groups_to_add.append(internal_group)
+
         # Apply group assignments using standard ORM command tuple list:
         # (4, id) adds a relation, (3, id) removes a relation.
         updates = []

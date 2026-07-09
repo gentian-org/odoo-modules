@@ -68,8 +68,9 @@ class GentianHome(Home):
             if user:
                 current_login = user.login
                 current_email = user.email
+                current_username = current_login.split('@')[0] if current_login else ""
                 # Check if the session user matches the portal login_hint
-                if login_hint != current_login and login_hint != current_email:
+                if login_hint != current_login and login_hint != current_username and login_hint != current_email:
                     _logger.warning("Active Odoo session (%s/%s) does not match portal login_hint (%s). Logging out.", current_login, current_email, login_hint)
                     request.session.logout(keep_db=True)
                     # Redirect to trigger re-auth
