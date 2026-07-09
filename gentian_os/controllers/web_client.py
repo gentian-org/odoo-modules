@@ -66,13 +66,44 @@ class GentianHome(Home):
     def web_login(self, redirect=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
         
+        # Check if we are embedded in the Gentian portal, either from query parameters
+        # or extracted from the URL-encoded redirect parameter (common when redirected by Odoo core)
+        gentian_embed = request.params.get("gentian_embed") == "1"
+        login_hint = request.params.get("login_hint")
+        
+        redirect_param = request.params.get("redirect")
+        if redirect_param and (not gentian_embed or not login_hint):
+            from urllib.parse import urlparse, parse_qs
+            try:
+                parsed = urlparse(redirect_param)
+                qs = parse_qs(parsed.query)
+                if not gentian_embed and qs.get("gentian_embed") == ["1"]:
+                    gentian_embed = True
+                if not login_hint:
+                    hints = qs.get("login_hint")
+                    if hints:
+                        login_hint = hints[0]
+            except Exception:
+                pass
+
         # Auto-redirect embedded login requests to Keycloak for Zero-Click SSO
-        if request.params.get("gentian_embed") == "1" and not request.session.uid and not kw.get("oauth_error"):
+        if gentian_embed and not request.session.uid and not kw.get("oauth_error"):
             oauth_login = GentianOAuthLogin()
             providers = oauth_login.list_providers()
             keycloak_provider = next((p for p in providers if p.get("name") == "Keycloak"), None)
             if keycloak_provider and keycloak_provider.get("auth_link"):
                 auth_link = keycloak_provider["auth_link"]
+                # Forward login_hint if available to enable silent/pre-filled SSO in Keycloak
+                if login_hint:
+                    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+                    try:
+                        parsed_auth = urlparse(auth_link)
+                        qsl = parse_qsl(parsed_auth.query)
+                        qsl = [item for item in qsl if item[0] != 'login_hint']
+                        qsl.append(('login_hint', login_hint))
+                        auth_link = urlunparse(parsed_auth._replace(query=urlencode(qsl)))
+                    except Exception:
+                        pass
                 _logger.info("Auto-redirecting portal-embedded Odoo login to Keycloak: %s", auth_link)
                 return _rewrite_response(request.redirect(auth_link, local=False))
 
