@@ -60,6 +60,18 @@ class GentianHome(Home):
     @http.route(['/web', '/odoo', '/odoo/<path:subpath>', '/scoped_app/<path:subpath>'], type='http', auth="none")
     def web_client(self, s_action=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
+        
+        # Convert action query parameter to hash fragment to prevent loss during OIDC redirects
+        action = request.params.get("action")
+        if action:
+            params = dict(request.params)
+            params.pop("action", None)
+            from urllib.parse import urlencode
+            query = urlencode(params)
+            # Redirect to the hash version
+            redirect_url = f"/web?{query}#action={action}"
+            return _rewrite_response(request.redirect(redirect_url))
+            
         return _rewrite_response(super().web_client(s_action=s_action, **kw))
 
     @http.route('/web/login', type='http', auth='none', readonly=False)
