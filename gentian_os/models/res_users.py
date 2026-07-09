@@ -155,11 +155,13 @@ class ResUsers(models.Model):
         )
 
         if not is_protected_user and admin_group and access_group:
-            if "Tenant Admins" in keycloak_group_names:
+            if "Tenant Admins" in keycloak_group_names or any(g.endswith(":admins") for g in keycloak_group_names):
                 groups_to_add.extend([admin_group, access_group])
+                _logger.info("Promoted user to Odoo Administrator based on admins group")
             else:
                 groups_to_remove |= admin_group
                 groups_to_remove |= access_group
+                _logger.info("Demoted user from Odoo Administrator")
 
         # Promote portal user to internal user so they can access backend app modules (/web)
         portal_group = self.env.ref("base.group_portal", raise_if_not_found=False)
