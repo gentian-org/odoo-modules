@@ -149,24 +149,24 @@ class ResUsers(models.Model):
         portal_group = self.env.ref("base.group_portal", raise_if_not_found=False)
         internal_group = self.env.ref("base.group_user", raise_if_not_found=False)
         if portal_group and internal_group:
-            if portal_group in self.groups_id or internal_group not in self.groups_id:
-                if portal_group in self.groups_id:
+            if portal_group in self.group_ids or internal_group not in self.group_ids:
+                if portal_group in self.group_ids:
                     groups_to_remove |= portal_group
-                if internal_group not in groups_to_add and internal_group not in self.groups_id:
+                if internal_group not in groups_to_add and internal_group not in self.group_ids:
                     groups_to_add.append(internal_group)
 
         # Apply group assignments using standard ORM command tuple list:
         # (4, id) adds a relation, (3, id) removes a relation.
         updates = []
         for g in groups_to_add:
-            if g not in self.groups_id:
+            if g not in self.group_ids:
                 updates.append((4, g.id))
         for g in groups_to_remove:
-            if g in self.groups_id:
+            if g in self.group_ids:
                 updates.append((3, g.id))
 
         if updates:
-            self.write({"groups_id": updates})
+            self.write({"group_ids": updates})
             _logger.info("Updated group memberships for user %s: %s", self.login, updates)
 
     @api.model
