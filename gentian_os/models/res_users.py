@@ -154,13 +154,19 @@ class ResUsers(models.Model):
             self.env.ref("base.user_root", raise_if_not_found=False).id or 0,
         )
 
+        account_group = self.env.ref("account.group_account_user", raise_if_not_found=False)
+
         if not is_protected_user and admin_group and access_group:
             if "Tenant Admins" in keycloak_group_names or any(g.endswith(":admins") for g in keycloak_group_names):
                 groups_to_add.extend([admin_group, access_group])
+                if account_group:
+                    groups_to_add.append(account_group)
                 _logger.info("Promoted user to Odoo Administrator based on admins group")
             else:
                 groups_to_remove |= admin_group
                 groups_to_remove |= access_group
+                if account_group:
+                    groups_to_remove |= account_group
                 _logger.info("Demoted user from Odoo Administrator")
 
         # Promote portal user to internal user so they can access backend app modules (/web)
