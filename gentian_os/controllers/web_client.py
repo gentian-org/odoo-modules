@@ -61,9 +61,11 @@ class GentianHome(Home):
     def web_client(self, s_action=None, **kw):
         request.httprequest.environ['wsgi.url_scheme'] = 'https'
         
-        # Convert action query parameter to hash fragment to prevent loss during OIDC redirects
+        # Convert action query parameter to hash fragment only if the user is authenticated.
+        # If they are not authenticated, keep it in the query string so Odoo's login redirect
+        # preserves it in the "redirect" parameter.
         action = request.params.get("action")
-        if action:
+        if action and request.session.uid:
             params = dict(request.params)
             params.pop("action", None)
             from urllib.parse import urlencode
