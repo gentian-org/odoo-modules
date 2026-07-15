@@ -256,15 +256,14 @@ class ResUsers(models.Model):
             except Exception as e:
                 _logger.warning("Failed to update company logo to Gentian logo: %s", e)
 
-        # Ensure default POS configuration exists if point_of_sale is installed
+        # Ensure default POS journal exists if point_of_sale is installed
         if "pos.config" in self.env:
-            PosConfig = self.env["pos.config"].sudo()
-            if PosConfig.search_count([]) == 0:
-                try:
-                    with self.env.cr.savepoint():
-                        PosConfig.create({"name": "Bar"})
-                    self.env.cr.commit()
-                    _logger.info("Successfully created default POS configuration 'Bar'.")
-                except Exception as e:
-                    _logger.warning("Failed to create default POS configuration: %s", e)
+            try:
+                with self.env.cr.savepoint():
+                    self.env["account.journal"].sudo()._ensure_company_account_journal()
+                self.env.cr.commit()
+                _logger.info("Successfully pre-created default POS journals.")
+            except Exception as e:
+                _logger.warning("Failed to pre-create default POS journals: %s", e)
+
 
