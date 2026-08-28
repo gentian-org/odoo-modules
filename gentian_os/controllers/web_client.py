@@ -37,20 +37,25 @@ _logger = logging.getLogger(__name__)
 
 
 def _rewrite_response(response):
-    _logger.info("REWRITE_RESPONSE CALLED: %s, headers: %s", type(response), getattr(response, 'headers', None))
+    # debug, not info: this runs on every single response, and it dumps the
+    # whole header block -- including Location, which on the OAuth return leg
+    # carries the access token. Left at info it was both the noisiest line in
+    # the log and a second copy of the credential the redaction filter exists
+    # to keep out of it.
+    _logger.debug("rewrite_response: %s, headers: %s", type(response), getattr(response, 'headers', None))
     if isinstance(response, http.Response):
         response.headers.pop('X-Frame-Options', None)
         response.headers['Content-Security-Policy'] = _get_frame_ancestors()
         if 'Location' in response.headers:
-            _logger.info("REWRITE_RESPONSE location: %s", response.headers['Location'])
+            _logger.debug("rewrite_response location: %s", response.headers['Location'])
             loc = response.headers['Location']
             if loc.startswith('/'):
                 host = request.httprequest.host
                 response.headers['Location'] = f"https://{host}{loc}"
-                _logger.info("REWRITE_RESPONSE converted relative location: %s", response.headers['Location'])
+                _logger.debug("rewrite_response converted relative location: %s", response.headers['Location'])
             elif loc.startswith('http://'):
                 response.headers['Location'] = loc.replace('http://', 'https://', 1)
-                _logger.info("REWRITE_RESPONSE updated absolute location: %s", response.headers['Location'])
+                _logger.debug("rewrite_response updated absolute location: %s", response.headers['Location'])
     return response
 
 
