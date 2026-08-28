@@ -205,10 +205,24 @@ class ResUsers(models.Model):
         self = self.sudo()
         Provider = self.env["auth.oauth.provider"]
         provider = Provider.search([("name", "=", "Keycloak")], limit=1)
-        validation_endpoint = f"{issuer}/protocol/openid-connect/userinfo"
-        if "id.desk.gentian.org" in issuer:
-            realm = issuer.split('/')[-1]
-            validation_endpoint = f"http://gentian-idp-keycloak-keycloakx-http.platform-kernel.svc.cluster.local:8080/auth/realms/{realm}/protocol/openid-connect/userinfo"
+        # Where the token is VALIDATED, as opposed to where the browser is
+        # sent. auth_oauth calls the userinfo endpoint from inside the pod, and
+        # the public issuer is the kernel gateway -- so that leg leaves the
+        # cluster and comes back in. A tenant app is not allowed out to the
+        # gateway, so the call times out and Odoo answers oauth_error=2, which
+        # the browser shows as "access denied" on a perfectly good token.
+        #
+        # This used to be keyed on `"id.desk.gentian.org" in issuer` -- one
+        # cluster's hostname, hardcoded -- so every other cluster silently took
+        # the public path and could not sign in. OIDC_INTERNAL_ISSUER carries
+        # the in-cluster base instead, set by the chart, and the platform is
+        # what knows its own Keycloak Service name rather than this module.
+        #
+        # Unset falls back to the public issuer, which is both the old
+        # behaviour and the right answer anywhere the two are the same.
+        internal = (os.environ.get("OIDC_INTERNAL_ISSUER") or "").strip().rstrip('/')
+        validation_base = internal or issuer
+        validation_endpoint = f"{validation_base}/protocol/openid-connect/userinfo"
         vals = {
             "name": "Keycloak",
             "client_id": client_id,
