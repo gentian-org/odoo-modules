@@ -128,21 +128,14 @@ class ResUsers(models.Model):
         # Update saved dynamic roles on user
         self.gentian_dynamic_roles = ",".join(mapped_role_xml_ids)
 
-        # Static App-to-Odoo group mappings
-        static_mappings = {
-            ":app:odoo-cb-crm": ["sales_team.group_sale_salesman"],
-        }
-        for suffix, xml_ids in static_mappings.items():
-            has_app = any(kg_name.endswith(suffix) for kg_name in keycloak_group_names)
-            for xml_id in xml_ids:
-                target_group = self.env.ref(xml_id, raise_if_not_found=False)
-                if target_group and target_group._name == "res.groups":
-                    if has_app:
-                        groups_to_add.append(target_group)
-                        _logger.info("Mapping static Odoo group %s for app suffix %s", xml_id, suffix)
-                    else:
-                        groups_to_remove |= target_group
-                        _logger.info("Removing static Odoo group %s because app suffix %s is missing", xml_id, suffix)
+        # No static app-to-Odoo group table here. It used to carry one entry,
+        # ":app:odoo-cb-crm" -> sales_team.group_sale_salesman, added while the
+        # gentianOdooGroupRoles claim was not reaching Odoo. The name was stale
+        # from the profile rename: the entitlement group is
+        # gentian:tenant:<t>:app:odoo-crm-ce, so the suffix never matched, the
+        # else branch ran on every sign-in, and CRM access alternated on and off
+        # with each login. odoo-crm-ce declares that same xml id in
+        # gentianOdooGroupRoles, so the claim above is the one source.
 
         # Admin privilege mapping
         admin_group = self.env.ref("base.group_system", raise_if_not_found=False)
@@ -181,11 +174,21 @@ class ResUsers(models.Model):
 
         # Apply group assignments using standard ORM command tuple list:
         # (4, id) adds a relation, (3, id) removes a relation.
+        #
+        # A group named by both sides is an add: the claim is what the user is
+        # entitled to now, and a removal rule that disagrees with it is stale.
+        # Resolving it here rather than by write order is what keeps a
+        # contradiction from being decided by whether the user happened to hold
+        # the group already -- the accident that made the static CRM mapping
+        # grant on one login and revoke on the next.
+        add_ids = {g.id for g in groups_to_add}
         updates = []
         for g in groups_to_add:
             if g not in self.group_ids:
                 updates.append((4, g.id))
         for g in groups_to_remove:
+            if g.id in add_ids:
+                continue
             if g in self.group_ids:
                 updates.append((3, g.id))
 
