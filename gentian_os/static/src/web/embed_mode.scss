@@ -1,9 +1,27 @@
-body.o_gentian_embed .o_main_navbar,
-body.o_gentian_embed .o_home_menu_background,
+// Embedded in the Gentian portal, Odoo is one window inside a shell that already
+// has a launcher. Only the parts that duplicate the shell come off.
+//
+// This used to hide .o_main_navbar outright, which is the whole top bar — and the
+// top bar is not just the app launcher. It also carries .o_menu_sections, where a
+// module keeps its own navigation, and .o_menu_systray, where Odoo keeps
+// Preferences, My Profile and the Settings entry. Hiding all of it meant anything
+// reachable only from the top bar was unreachable inside the portal: you could
+// open CRM but not get to its Configuration menu, and you could not reach your own
+// preferences at all. Two navbars is a presentation problem; an unreachable
+// settings menu is a functional one.
+//
+// So: keep the bar, drop the launcher.
 body.o_gentian_embed .o_navbar_apps_menu {
     display: none !important;
 }
 
-body.o_gentian_embed .o_action_manager {
-    top: 0 !important;
-}
+// No .o_home_menu_background rule, and no .o_action_manager top override.
+//
+// The first was written against Enterprise, where that class is the home-menu
+// backdrop. In Community it belongs to the PWA scoped-app install screen
+// (web/static/src/core/install_scoped_app), so the rule was hiding an unrelated
+// screen and never the thing it was named for.
+//
+// The second existed only to close the gap left by the hidden navbar. The navbar
+// is back and occupies its own space again, so pinning the action manager to the
+// top now overlaps it.
