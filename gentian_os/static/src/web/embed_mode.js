@@ -18,11 +18,83 @@ function gentianEmbedActive() {
 /**
  * The app a Gentian tile declares it belongs to, as an ir.ui.menu xml id.
  *
- * Read from ?gentian_app= on the tile URL, which the portal builds from the
- * profile's linkSuffix. Absent on tiles that do not need it.
+ * Read from ?gentian_app= on the tile URL. An override for the rare action the
+ * rules below cannot place; most tiles send nothing and do not need to.
  */
 function gentianAppHint() {
     return new URLSearchParams(window.location.search).get("gentian_app") || null;
+}
+
+/**
+ * The module an action-by-xmlid URL names, e.g. "account" for
+ * /odoo/action-account.open_account_journal_dashboard_kanban.
+ *
+ * Null for the other URL shapes -- /odoo/<path>, /odoo/action-<numeric id> --
+ * which carry no module to read.
+ */
+function gentianActionModule() {
+    const part = window.location.pathname.split("/").filter(Boolean).pop() || "";
+    if (!part.startsWith("action-")) {
+        return null;
+    }
+    const xmlid = part.slice("action-".length);
+    const dot = xmlid.indexOf(".");
+    return dot > 0 ? xmlid.slice(0, dot) : null;
+}
+
+/**
+ * Which app owns what is on screen, decided from the tile's own URL.
+ *
+ * WebClient.loadRouterState answers this by looking for an ir.ui.menu that
+ * points at the action, and when it finds none it falls back to
+ * sessionStorage's "menu_id" -- the last app visited. That fallback is sound
+ * for stock Odoo, where a browser session holds one web client. It is wrong
+ * here: every Gentian tile is a separate same-origin iframe in one tab, and
+ * same-origin iframes share one sessionStorage, so "the last app visited"
+ * means "whichever tile the user opened most recently, in any window". The top
+ * bar of one app then shows another app's menu sections.
+ *
+ * Finding no menu is not the exception it sounds like. Odoo sends the client
+ * only the menus that user may see, so it depends on who is looking:
+ * account.open_account_journal_dashboard_kanban is reached from Invoicing /
+ * Dashboard, and for a user without that menu the action arrives owned by
+ * nothing at all. crm.crm_lead_action_pipeline has no menu for anyone.
+ *
+ * Deciding from the URL instead makes each tile's result depend only on that
+ * tile -- the same every time, for every user, whatever else is open.
+ *
+ * Returns null when nothing places the action, which leaves Odoo's own choice
+ * alone rather than replacing it with a worse guess.
+ */
+function resolveOwningApp(menuService) {
+    const menus = menuService.getAll();
+    const apps = menus.filter((m) => m.appID && m.appID === m.id && m.xmlid);
+
+    // 1. The tile said so outright. Nothing outranks that -- Gentian writes
+    //    the URL. Only needed where the module below cannot be read.
+    const hint = gentianAppHint();
+    if (hint) {
+        const hinted = menus.find((m) => m.xmlid === hint);
+        if (hinted && hinted.appID) {
+            return hinted.appID;
+        }
+    }
+
+    // 2. The module that defines the action also defines the app's root menu:
+    //    account.open_account_journal_dashboard_kanban and account.menu_finance,
+    //    hr.open_view_employee_list_my and hr.menu_hr_root. Both halves are
+    //    already on hand -- the xmlid is in the URL, and load_web_menus sends
+    //    each menu's xmlid -- so no declaration and no lookup table is needed,
+    //    and a module added later is covered without touching anything here.
+    const module = gentianActionModule();
+    if (module) {
+        const app = apps.find((m) => m.xmlid.startsWith(module + "."));
+        if (app) {
+            return app.appID;
+        }
+    }
+
+    return null;
 }
 
 patch(WebClient.prototype, {
@@ -34,51 +106,30 @@ patch(WebClient.prototype, {
     },
 
     /**
-     * Honour ?gentian_app= when the tile supplies it.
+     * Pin the app the top bar belongs to, so it cannot be decided by another
+     * iframe's sessionStorage. See resolveOwningApp.
      *
-     * WebClient.loadRouterState decides which app the top bar belongs to by
-     * matching the action against ir.ui.menu -- first by the action in the
-     * URL, then, once the action has loaded, by its resolved id. When neither
-     * finds an owner it falls back to sessionStorage's "menu_id", the last app
-     * visited. That fallback is sound for stock Odoo, where a browser session
-     * holds one web client. It is wrong here: every Gentian tile is a separate
-     * same-origin iframe in one tab, and same-origin iframes share one
-     * sessionStorage, so "the last app visited" means "whichever tile the user
-     * opened most recently", in any window.
-     *
-     * crm.crm_lead_action_pipeline is such an action -- no menu points at it
-     * and it has no path -- so CRM's own top bar showed the sections of
-     * whatever tile preceded it. Pointing the tile at crm.action_your_pipeline
-     * instead does not help: that is a server action, and
-     * ActionService._executeServerAction runs it and recurses into whatever it
-     * returns, which is this same menu-less action, so the wrapper's own menu
-     * and path are discarded before anything reads them.
-     *
-     * Rather than teach the web client to infer an owner Odoo's data genuinely
-     * does not record, the tile states it. Gentian knows which app it is
-     * launching -- it writes the URL -- so the hint is authoritative and needs
-     * no heuristic.
-     *
-     * Set before and after the original: before so the first paint is already
-     * right, after so nothing the original does can leave a different app
-     * selected. Both are no-ops when the hint is absent or names a menu this
-     * user cannot see, which leaves stock behaviour untouched for every tile
-     * that does not send one.
+     * Applied before the original call as well as after: it reads only the URL
+     * and the menu list, both available immediately, so running it first spares
+     * the tile the flash of rendering another app's menu sections and then
+     * correcting itself. Running it again afterwards makes sure nothing the
+     * original did -- including its own sessionStorage fallback -- gets the
+     * last word.
      */
     async loadRouterState() {
-        const applyHint = () => {
-            const hint = gentianAppHint();
-            if (!hint) {
-                return;
-            }
-            const menu = this.menuService.getAll().find((m) => m.xmlid === hint);
-            if (menu && menu.appID) {
-                this.menuService.setCurrentMenu(menu.appID);
+        const pin = () => {
+            const appID = resolveOwningApp(this.menuService);
+            if (appID) {
+                this.menuService.setCurrentMenu(appID);
             }
         };
-        applyHint();
+        if (gentianEmbedActive()) {
+            pin();
+        }
         const result = await super.loadRouterState(...arguments);
-        applyHint();
+        if (gentianEmbedActive()) {
+            pin();
+        }
         return result;
     },
 });

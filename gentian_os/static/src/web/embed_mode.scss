@@ -15,6 +15,26 @@ body.o_gentian_embed .o_navbar_apps_menu {
     display: none !important;
 }
 
+// Put back the gap the launcher used to hold open.
+//
+// navbar.scss gives .o_menu_brand `padding-left: 0` on purpose: the apps-menu
+// button sits to its left with --NavBar-entry-padding-left ($o-horizontal-padding,
+// 16px) of its own, and that is what separates the app name from the edge of the
+// frame. Hiding the button takes the gap with it and the name ends up flush
+// against the frame.
+//
+// Written as a custom property with a literal fallback rather than the SCSS
+// variable: --NavBar-entry-padding-left is declared per navbar entry, not on a
+// shared ancestor, so it is not reliably in scope here, and a bare
+// $o-horizontal-padding would be a compile-time dependency on Odoo's variables
+// being visible to this file. If that ever stopped holding, the failure would not
+// be a missing 16px — it would be the whole backend bundle failing to compile,
+// which the user sees as "Style error. The style compilation failed." for the
+// entire database. The fallback cannot fail.
+body.o_gentian_embed .o_menu_brand {
+    padding-left: var(--NavBar-entry-padding-left, 16px);
+}
+
 // No .o_home_menu_background rule, and no .o_action_manager top override.
 //
 // The first was written against Enterprise, where that class is the home-menu
