@@ -1,9 +1,20 @@
 # Copyright 2026 Gentian Authors. Licensed under LGPL-3.0.
 
+import hashlib
 import logging
+
 from odoo import api, fields, models
+from odoo.http import request
 
 _logger = logging.getLogger(__name__)
+
+# The session key naming the module set a session's rights were synced for.
+# Odoo learns a person's groups only when they sign in, so a session that
+# outlived an addon install would never get that addon's roles: the tile opens
+# an app the session may not use, and Odoo shows its first app instead.
+# ir_http compares this with the current set and sends a stale session through
+# the zero-click sign-in again.
+SYNCED_MODULES_KEY = "gentian_synced_modules"
 
 
 class ResUsers(models.Model):
@@ -43,7 +54,21 @@ class ResUsers(models.Model):
         except Exception as e:
             _logger.exception("Failed to sync Keycloak groups for user %s: %s", login, e)
 
+        # Stamped whether or not the sync succeeded: the session is as current
+        # as a sign-in can make it, and sending it round again would not help.
+        if request:
+            request.session[SYNCED_MODULES_KEY] = self._gentian_modules_stamp()
+
         return login
+
+    @api.model
+    def _gentian_modules_stamp(self):
+        """A digest of the installed modules. The roles a sign-in grants name
+        modules' groups, so a different set is what makes a session stale."""
+        self.env["ir.module.module"].flush_model(["name", "state"])
+        self.env.cr.execute("SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name")
+        names = ",".join(row[0] for row in self.env.cr.fetchall())
+        return hashlib.sha256(names.encode()).hexdigest()[:16]
 
     def _sync_keycloak_groups(self, validation):
         self.ensure_one()
