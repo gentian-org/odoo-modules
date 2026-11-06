@@ -1,12 +1,18 @@
 # Copyright 2026 Gentian Authors. Licensed under LGPL-3.0.
 
+import json
+import secrets
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
 from odoo import http
 from odoo.http import request
 from odoo.addons.web.controllers.home import Home
 try:
-    from odoo.addons.auth_oauth.controllers.main import OAuthLogin
+    from odoo.addons.auth_oauth.controllers.main import OAuthController, OAuthLogin
 except ImportError:
-    OAuthLogin = object
+    OAuthController = OAuthLogin = object
+
+from .. import oauth_code
 
 
 def _get_frame_ancestors():
@@ -130,7 +136,15 @@ class GentianHome(Home):
 
 
 class GentianOAuthLogin(OAuthLogin):
-    """Override OAuthLogin controller to force HTTPS redirect URI for providers."""
+    """Override OAuthLogin controller to force HTTPS redirect URI for providers,
+    and to sign in through the platform's client with the authorization-code
+    flow (oauth_code.py)."""
+
+    def get_state(self, provider):
+        state = super().get_state(provider) if OAuthLogin is not object else {}
+        if oauth_code.is_platform_provider(provider):
+            state[oauth_code.STATE_KEY] = secrets.token_urlsafe(16)
+        return state
 
     def list_providers(self):
         providers = super().list_providers() if OAuthLogin is not object else []
@@ -143,5 +157,66 @@ class GentianOAuthLogin(OAuthLogin):
                 # Correct state redirect parameter to HTTPS if needed
                 if 'http%253A%252F%252F' in auth_link:
                     provider['auth_link'] = provider['auth_link'].replace('http%253A%252F%252F', 'https%253A%252F%252F')
+                if oauth_code.is_platform_provider(provider):
+                    provider['auth_link'] = _code_flow_link(provider['auth_link'])
         return providers
+
+
+def _code_flow_link(auth_link):
+    """The platform provider's link, asking for a code with PKCE instead of a
+    token. The verifier and the redirect_uri are kept in the session under the
+    key the state carries; a link whose state has none is left as it is."""
+    parsed = urlparse(auth_link)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    params = dict(query)
+    try:
+        key = json.loads(params.get("state") or "{}").get(oauth_code.STATE_KEY)
+    except ValueError:
+        key = None
+    if not key:
+        return auth_link
+    verifier = oauth_code.new_verifier()
+    oauth_code.remember(request.session, key, verifier, params.get("redirect_uri", ""))
+    query = [(k, v) for k, v in query if k not in ("response_type", "code_challenge", "code_challenge_method")]
+    query += [
+        ("response_type", "code"),
+        ("code_challenge", oauth_code.challenge(verifier)),
+        ("code_challenge_method", "S256"),
+    ]
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+class GentianOAuthController(OAuthController):
+    """Take the platform provider's code, exchange it, and sign in as Odoo
+    does with a token."""
+
+    @http.route()
+    def signin(self, **kw):
+        if "code" not in kw or kw.get("access_token"):
+            return super().signin(**kw)
+        code = kw.pop("code")
+        kw.pop("session_state", None)
+        kw.pop("iss", None)
+        try:
+            state = json.loads(kw.get("state") or "{}")
+        except ValueError:
+            state = {}
+        verifier, redirect_uri = oauth_code.take(request.session, state.get(oauth_code.STATE_KEY))
+        if not verifier:
+            # A code for a sign-in this browser did not start, or one already
+            # used: never exchanged.
+            _logger.warning("OAuth2: a code arrived for a sign-in this session did not start; refused")
+            return _oauth_refused()
+        try:
+            kw["access_token"] = oauth_code.exchange(code, redirect_uri, verifier)
+        except oauth_code.ExchangeError as exc:
+            _logger.warning("OAuth2: %s", exc)
+            return _oauth_refused()
+        return super().signin(**kw)
+
+
+def _oauth_refused():
+    redirect = request.redirect("/web/login?oauth_error=2", 303)
+    redirect.autocorrect_location_header = False
+    return redirect
 

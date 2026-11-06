@@ -2,11 +2,14 @@
 
 """Keep OAuth credentials out of the log.
 
-auth_oauth uses the implicit flow: Keycloak returns the access token in the URL
-fragment, and Odoo's own JS turns that fragment into a query string before
-re-requesting. By the time werkzeug logs the request line, the bearer token is
-a query parameter — so every sign-in wrote a usable token into the access log
-in plaintext, readable for its full lifetime by anything that can read logs.
+Odoo's own auth_oauth uses the implicit flow: the identity provider returns the
+access token in the URL fragment, and Odoo's JS turns that fragment into a query
+string before re-requesting. By the time werkzeug logs the request line, the
+bearer token is a query parameter — so every sign-in wrote a usable token into
+the access log in plaintext, readable for its full lifetime by anything that can
+read logs. The platform's provider signs in with a code instead
+(oauth_code.py), but the code is a credential until it is exchanged, and any
+other provider an administrator configures still uses the implicit flow.
 
 Redacting at the logging layer rather than at the callers, because the caller
 here is werkzeug: the URL is logged by the WSGI server before any Odoo code of
