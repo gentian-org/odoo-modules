@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Gentian Authors. Licensed under LGPL-3.0. -->
+<odoo>
+    <record id="crm_lead_view_form_transcripts" model="ir.ui.view">
+        <field name="name">crm.lead.form.transcripts</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button name="action_view_transcripts" type="object"
+                    class="oe_stat_button" icon="fa-microphone"
+                    invisible="not id or type == 'lead'">
+                    <field name="transcript_count" widget="statinfo" string="Transcripts"/>
+                </button>
+            </div>
+            <page name="internal_notes" position="after">
+                <page string="Transcripts" name="transcripts" invisible="type == 'lead'">
+                    <field name="transcript_ids" context="{'default_partner_ids': partner_id and [partner_id] or []}">
+                        <list>
+                            <field name="meeting_date"/>
+                            <field name="name"/>
+                            <field name="partner_ids" widget="many2many_tags"/>
+                            <field name="user_id" widget="many2one_avatar_user"/>
+                            <field name="source" optional="hide"/>
+                        </list>
+                    </field>
+                </page>
+            </page>
+        </field>
+    </record>
+</odoo>
