@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Copyright 2026 Gentian Authors. License AGPL-3.0. -->
+<templates xml:space="preserve">
+    <t t-inherit="mail.Chatter" t-inherit-mode="extension">
+        <xpath expr="//AttachmentList//..//FileUploader//button" position="after">
+            <button
+                class="btn btn-link o_gentian_attach_from_files"
+                type="button"
+                t-att-disabled="!state.thread.hasWriteAccess"
+                t-on-click="_onAttachFromFiles"
+            >
+                <i class="fa fa-folder-open-o" /> Attach from files
+            </button>
+        </xpath>
+    </t>
+</templates>
