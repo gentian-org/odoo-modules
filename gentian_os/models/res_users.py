@@ -18,7 +18,7 @@ SYNCED_MODULES_KEY = "gentian_synced_modules"
 
 # The claim the platform writes a person's roles to, as group XML ids. The
 # claim of the same name followed by "_mapped" lists every group it decides.
-ROLES_CLAIM = "gentian_roles"
+ROLES_CLAIM = "gentian_app_roles"
 
 
 def _xml_ids(claim):
@@ -83,9 +83,9 @@ class ResUsers(models.Model):
     def _sync_platform_roles(self, validation):
         """Set the person's groups to the roles the platform says they hold.
 
-        The sign-in token carries two lists of group XML ids. ``gentian_roles``
+        The sign-in token carries two lists of group XML ids. ``gentian_app_roles``
         are the groups of the roles the person holds on Odoo and on the
-        modules installed in it. ``gentian_roles_mapped`` are all the groups
+        modules installed in it. ``gentian_app_roles_mapped`` are all the groups
         the platform decides. The person is given the first and loses the rest
         of the second. A group in neither is Odoo's own to keep: what an
         administrator gave inside Odoo stays.

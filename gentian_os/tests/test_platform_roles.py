@@ -27,8 +27,8 @@ class TestPlatformRoles(TransactionCase):
     def test_held_roles_are_given_and_the_rest_of_the_mapped_taken(self):
         person = self._person([self.internal, self.system, self.own])
         person._sync_platform_roles({
-            "gentian_roles": ["base.group_user", "base.group_erp_manager"],
-            "gentian_roles_mapped": self.mapped,
+            "gentian_app_roles": ["base.group_user", "base.group_erp_manager"],
+            "gentian_app_roles_mapped": self.mapped,
         })
         self.assertIn(self.internal, person.group_ids)
         self.assertIn(self.erp_manager, person.group_ids)
@@ -38,7 +38,7 @@ class TestPlatformRoles(TransactionCase):
 
     def test_a_person_with_a_role_becomes_an_internal_user(self):
         person = self._person([self.portal])
-        person._sync_platform_roles({"gentian_roles": ["base.group_user"], "gentian_roles_mapped": self.mapped})
+        person._sync_platform_roles({"gentian_app_roles": ["base.group_user"], "gentian_app_roles_mapped": self.mapped})
         self.assertIn(self.internal, person.group_ids)
         self.assertNotIn(self.portal, person.group_ids)
 
@@ -51,18 +51,18 @@ class TestPlatformRoles(TransactionCase):
     def test_a_group_the_platform_did_not_map_is_not_given(self):
         person = self._person([self.internal])
         person._sync_platform_roles({
-            "gentian_roles": ["base.group_user", "base.group_system"],
-            "gentian_roles_mapped": ["base.group_user"],
+            "gentian_app_roles": ["base.group_user", "base.group_system"],
+            "gentian_app_roles_mapped": ["base.group_user"],
         })
         self.assertNotIn(self.system, person.group_ids)
 
     def test_no_role_takes_every_mapped_group(self):
         person = self._person([self.internal, self.system])
-        person._sync_platform_roles({"gentian_roles": [], "gentian_roles_mapped": ["base.group_system"]})
+        person._sync_platform_roles({"gentian_app_roles": [], "gentian_app_roles_mapped": ["base.group_system"]})
         self.assertNotIn(self.system, person.group_ids)
 
     def test_the_accounts_odoo_ships_with_are_not_demoted(self):
         admin = self.env.ref("base.user_admin")
         self.assertIn(self.system, admin.group_ids)
-        admin._sync_platform_roles({"gentian_roles": ["base.group_user"], "gentian_roles_mapped": self.mapped})
+        admin._sync_platform_roles({"gentian_app_roles": ["base.group_user"], "gentian_app_roles_mapped": self.mapped})
         self.assertIn(self.system, admin.group_ids)
