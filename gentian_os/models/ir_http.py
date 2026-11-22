@@ -23,7 +23,7 @@ RESYNC_PARAM = "gentian_resync"
 
 def _stale_rights_redirect():
     """Send a Keycloak user whose session was synced for another module set
-    through the zero-click sign-in again, which syncs their groups.
+    through the zero-click sign-in again, which sets their groups.
 
     Only on a page load of the web client: an RPC from a page already open is
     left alone, because ending its session would show Odoo's "session expired"
