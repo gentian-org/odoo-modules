@@ -3,7 +3,7 @@
 import hashlib
 import logging
 
-from odoo import api, fields, models
+from odoo import api, models
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -16,16 +16,26 @@ _logger = logging.getLogger(__name__)
 # the zero-click sign-in again.
 SYNCED_MODULES_KEY = "gentian_synced_modules"
 
+# The claim the platform writes a person's roles to, as group XML ids. The
+# claim of the same name followed by "_mapped" lists every group it decides.
+ROLES_CLAIM = "gentian_app_roles"
+
+
+def _xml_ids(claim):
+    """A claim as a list of group XML ids, or None when the token has none."""
+    if claim is None:
+        return None
+    if isinstance(claim, str):
+        claim = [claim]
+    if not isinstance(claim, list):
+        return None
+    return [c.strip() for c in claim if isinstance(c, str) and c.strip()]
+
 
 class ResUsers(models.Model):
-    """Overrides user sign-in to dynamically map Keycloak group claims."""
+    """Sets a person's groups at sign-in to the roles the platform says they hold."""
 
     _inherit = "res.users"
-
-    gentian_dynamic_roles = fields.Char(
-        string="Gentian Dynamic Roles",
-        help="Comma-separated XML IDs of dynamically mapped Odoo roles.",
-    )
 
     @api.model
     def _auth_oauth_rpc(self, endpoint, access_token):
@@ -46,13 +56,13 @@ class ResUsers(models.Model):
         if not login:
             return login
 
-        # Run group claim synchronization in a sudo block to manage res.groups
+        # As the superuser: a person does not hold the right to change groups.
         try:
             user = self.sudo().search([("login", "=", login)], limit=1)
             if user:
-                user._sync_keycloak_groups(validation)
+                user._sync_platform_roles(validation)
         except Exception as e:
-            _logger.exception("Failed to sync Keycloak groups for user %s: %s", login, e)
+            _logger.exception("Failed to set the platform's roles for user %s: %s", login, e)
 
         # Stamped whether or not the sync succeeded: the session is as current
         # as a sign-in can make it, and sending it round again would not help.
@@ -70,156 +80,62 @@ class ResUsers(models.Model):
         names = ",".join(row[0] for row in self.env.cr.fetchall())
         return hashlib.sha256(names.encode()).hexdigest()[:16]
 
-    def _sync_keycloak_groups(self, validation):
+    def _sync_platform_roles(self, validation):
+        """Set the person's groups to the roles the platform says they hold.
+
+        The sign-in token carries two lists of group XML ids. ``gentian_app_roles``
+        are the groups of the roles the person holds on Odoo and on the
+        modules installed in it. ``gentian_app_roles_mapped`` are all the groups
+        the platform decides. The person is given the first and loses the rest
+        of the second. A group in neither is Odoo's own to keep: what an
+        administrator gave inside Odoo stays.
+
+        A token without the second list comes from a platform that does not
+        say, and changes nothing.
+        """
         self.ensure_one()
+        mapped = _xml_ids(validation.get(ROLES_CLAIM + "_mapped"))
+        if mapped is None:
+            _logger.info("No platform roles in the sign-in of %s: groups left as they are", self.login)
+            return
+        held = _xml_ids(validation.get(ROLES_CLAIM)) or []
+        # Only a name the platform decides is taken from the first list, so a
+        # token cannot give a group the platform never mapped.
+        held = [xml_id for xml_id in held if xml_id in mapped]
 
-        # Keycloak group list claim is typically under 'groups'
-        raw_groups = validation.get("groups") or []
-        if not isinstance(raw_groups, list):
-            raw_groups = [raw_groups]
-
-        # Clean names (strip leading slashes from Keycloak group paths)
-        keycloak_group_names = {
-            g.lstrip("/") for g in raw_groups if isinstance(g, str) and g
-        }
-        _logger.info("Syncing Keycloak groups %s for user %s", keycloak_group_names, self.login)
-
-        ResGroups = self.env["res.groups"]
-
-        # Ensure res.groups exist for all active Keycloak groups
-        groups_to_add = []
-        for name in keycloak_group_names:
-            group = ResGroups.search([("gentian_group_name", "=", name)], limit=1)
-            if not group:
-                group = ResGroups.create({
-                    "name": f"Gentian / {name}",
-                    "gentian_group_name": name,
-                })
-                _logger.info("Created linked Odoo group for Keycloak group: %s", name)
-            groups_to_add.append(group)
-
-        # Find all Gentian-linked res.groups that this user is NO LONGER a member of
-        groups_to_remove = ResGroups.search([
-            ("gentian_group_name", "!=", False),
-            ("gentian_group_name", "not in", list(keycloak_group_names)),
-        ])
-
-        # Dynamic in-app roles mapping (tier 3 RBAC)
-        raw_roles = validation.get("gentianOdooGroupRoles") or []
-        if not isinstance(raw_roles, list):
-            raw_roles = [raw_roles]
-
-        mapped_role_xml_ids = []
-        for role_entry in raw_roles:
-            if not isinstance(role_entry, str):
-                continue
-            role_entry = role_entry.strip()
-            if not role_entry:
-                continue
-            if role_entry.startswith("[") and role_entry.endswith("]"):
-                import json
-                try:
-                    parsed = json.loads(role_entry)
-                    if isinstance(parsed, list):
-                        mapped_role_xml_ids.extend([str(r).strip() for r in parsed if r])
-                    else:
-                        mapped_role_xml_ids.append(str(parsed).strip())
-                except Exception:
-                    mapped_role_xml_ids.append(role_entry)
-            else:
-                mapped_role_xml_ids.extend([r.strip() for r in role_entry.split(",") if r.strip()])
-
-        # Previous dynamic roles
-        prev_roles_str = self.gentian_dynamic_roles or ""
-        prev_roles = [r.strip() for r in prev_roles_str.split(",") if r.strip()]
-
-        # Groups to add: new roles that are not already in user's groups
-        for xml_id in mapped_role_xml_ids:
-            role_group = self.env.ref(xml_id, raise_if_not_found=False)
-            if role_group and role_group._name == "res.groups":
-                groups_to_add.append(role_group)
-                _logger.info("Mapped dynamic Odoo role group: %s", xml_id)
-            else:
-                _logger.warning("Mapped dynamic Odoo role XML ID not found or invalid: %s", xml_id)
-
-        # Groups to remove: previous roles that are not in new roles
-        for xml_id in prev_roles:
-            if xml_id not in mapped_role_xml_ids:
-                role_group = self.env.ref(xml_id, raise_if_not_found=False)
-                if role_group and role_group._name == "res.groups":
-                    groups_to_remove |= role_group
-                    _logger.info("Removing stale dynamic mapped Odoo role group: %s", xml_id)
-
-        # Update saved dynamic roles on user
-        self.gentian_dynamic_roles = ",".join(mapped_role_xml_ids)
-
-        # No static app-to-Odoo group table here. It used to carry one entry,
-        # ":app:odoo-cb-crm" -> sales_team.group_sale_salesman, added while the
-        # gentianOdooGroupRoles claim was not reaching Odoo. The name was stale
-        # from the profile rename: the entitlement group is
-        # gentian:tenant:<t>:app:odoo-crm-ce, so the suffix never matched, the
-        # else branch ran on every sign-in, and CRM access alternated on and off
-        # with each login. odoo-crm-ce declares that same xml id in
-        # gentianOdooGroupRoles, so the claim above is the one source.
-
-        # Admin privilege mapping
-        admin_group = self.env.ref("base.group_system", raise_if_not_found=False)
-        access_group = self.env.ref("base.group_erp_manager", raise_if_not_found=False)
-
-        # Safety: Don't modify administrative rights for global root admin/system users
-        is_protected_user = self.id in (
+        # The two accounts Odoo ships with are not the platform's to demote.
+        protected = self.id in (
             self.env.ref("base.user_admin", raise_if_not_found=False).id or 0,
             self.env.ref("base.user_root", raise_if_not_found=False).id or 0,
         )
 
-        account_group = self.env.ref("account.group_account_manager", raise_if_not_found=False)
-
-        if not is_protected_user and admin_group and access_group:
-            if "Tenant Admins" in keycloak_group_names or any(g.endswith(":admins") or g.endswith(":app-admins") for g in keycloak_group_names):
-                groups_to_add.extend([admin_group, access_group])
-                if account_group:
-                    groups_to_add.append(account_group)
-                _logger.info("Promoted user to Odoo Administrator based on admins/app-admins group")
-            else:
-                groups_to_remove |= admin_group
-                groups_to_remove |= access_group
-                if account_group:
-                    groups_to_remove |= account_group
-                _logger.info("Demoted user from Odoo Administrator")
-
-        # Promote portal user to internal user so they can access backend app modules (/web)
-        portal_group = self.env.ref("base.group_portal", raise_if_not_found=False)
-        internal_group = self.env.ref("base.group_user", raise_if_not_found=False)
-        if portal_group and internal_group:
-            if portal_group in self.group_ids or internal_group not in self.group_ids:
-                if portal_group in self.group_ids:
-                    groups_to_remove |= portal_group
-                if internal_group not in groups_to_add and internal_group not in self.group_ids:
-                    groups_to_add.append(internal_group)
-
-        # Apply group assignments using standard ORM command tuple list:
-        # (4, id) adds a relation, (3, id) removes a relation.
-        #
-        # A group named by both sides is an add: the claim is what the user is
-        # entitled to now, and a removal rule that disagrees with it is stale.
-        # Resolving it here rather than by write order is what keeps a
-        # contradiction from being decided by whether the user happened to hold
-        # the group already -- the accident that made the static CRM mapping
-        # grant on one login and revoke on the next.
-        add_ids = {g.id for g in groups_to_add}
-        updates = []
-        for g in groups_to_add:
-            if g not in self.group_ids:
-                updates.append((4, g.id))
-        for g in groups_to_remove:
-            if g.id in add_ids:
+        ResGroups = self.env["res.groups"]
+        to_add = ResGroups
+        to_remove = ResGroups
+        for xml_id in mapped:
+            group = self.env.ref(xml_id, raise_if_not_found=False)
+            if not group or group._name != "res.groups":
+                # A module that is not installed: its groups are not there.
                 continue
-            if g in self.group_ids:
-                updates.append((3, g.id))
+            if xml_id in held:
+                to_add |= group
+            elif not protected:
+                to_remove |= group
 
+        # A person with a role is an internal user, and Odoo allows one user
+        # type: the portal group goes when the internal one comes.
+        internal = self.env.ref("base.group_user", raise_if_not_found=False)
+        portal = self.env.ref("base.group_portal", raise_if_not_found=False)
+        if internal and portal and internal in to_add and portal in self.group_ids:
+            to_remove |= portal
+
+        # A group named by both sides is an add: implied groups make that
+        # possible, and what the person holds now decides.
+        updates = [(4, g.id) for g in to_add if g not in self.group_ids]
+        updates += [(3, g.id) for g in to_remove - to_add if g in self.group_ids]
         if updates:
             self.write({"group_ids": updates})
-            _logger.info("Updated group memberships for user %s: %s", self.login, updates)
+            _logger.info("Updated groups of %s from the platform's roles: %s", self.login, updates)
 
     @api.model
     def _register_hook(self):
@@ -257,7 +173,7 @@ class ResUsers(models.Model):
             "enabled": True,
             "auth_endpoint": f"{issuer}/protocol/openid-connect/auth",
             "validation_endpoint": validation_endpoint,
-            "scope": "openid profile email groups",
+            "scope": "openid profile email",
             "css_class": "o_auth_oauth_provider_icon",
             "body": "Keycloak",
         }
