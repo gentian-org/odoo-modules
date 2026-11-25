@@ -2,6 +2,8 @@
 
 from odoo import api, fields, models
 
+from .summary import to_html
+
 
 class CrmMeetingTranscript(models.Model):
     """A meeting's transcript, kept with the opportunity it belongs to.
@@ -53,6 +55,19 @@ class CrmMeetingTranscript(models.Model):
         "UNIQUE(source, external_ref)",
         "This recording is filed already.",
     )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        # A summary written as text or Markdown is kept as formatted HTML.
+        for vals in vals_list:
+            if isinstance(vals.get("summary"), str):
+                vals["summary"] = to_html(vals["summary"])
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if isinstance(vals.get("summary"), str):
+            vals = {**vals, "summary": to_html(vals["summary"])}
+        return super().write(vals)
 
     @api.depends("lead_id")
     def _compute_company_id(self):

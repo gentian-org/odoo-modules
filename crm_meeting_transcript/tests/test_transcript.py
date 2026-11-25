@@ -85,3 +85,29 @@ class TestMeetingTranscript(TransactionCase):
         )
         self.assertEqual(filed.user_id, self.anna)
         self.assertEqual(filed.source, "manual")
+
+    def test_a_summary_written_as_markdown_is_kept_as_html(self):
+        transcript = self.env["crm.meeting.transcript"].create({
+            "name": "Dictation",
+            "summary": (
+                "[](plaud://highlight-card?title=Summary)\n"
+                "- **Goal**: more soup <script>x</script>\n"
+                "## Action Items\n"
+                "- [ ] Find providers [](plaud://source?x=1)\n"
+                "- [x] Send a card"
+            ),
+        })
+        html = str(transcript.summary)
+        self.assertIn("<li><strong>Goal</strong>: more soup &lt;script&gt;x&lt;/script&gt;</li>", html)
+        self.assertIn("Action Items</h4>", html)
+        self.assertIn("<li>☐ Find providers</li>", html)
+        self.assertIn("<li>☑ Send a card</li>", html)
+        self.assertNotIn("plaud://", html)
+        self.assertNotIn("<script>", html)
+
+    def test_a_summary_given_as_html_is_kept_and_text_keeps_its_lines(self):
+        Transcript = self.env["crm.meeting.transcript"]
+        given = Transcript.create({"name": "A", "summary": "<p>Kept <em>as is</em></p>"})
+        self.assertEqual(str(given.summary), "<p>Kept <em>as is</em></p>")
+        given.write({"summary": "first line\nsecond line"})
+        self.assertEqual(str(given.summary), "<p>first line<br>second line</p>")
